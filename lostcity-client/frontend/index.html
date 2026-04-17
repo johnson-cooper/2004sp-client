@@ -390,12 +390,8 @@
             })();
         </script>
 
-        <script>
-            window.SERVER_HOST    = 'localhost:43595';
-            window.SERVER_SECURED = false;
-            window.WASM_BASE_URL  = '';
-            window.AUTO_START_CLIENT = true;
-        </script>
+        <!-- Runtime config served dynamically by Go (reflects actual port settings) -->
+        <script src="/client-config.js"></script>
         <script>
             (function () {
                 var s = document.createElement('script');

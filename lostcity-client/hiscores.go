@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log"
-	"os"
-	"path/filepath"
 
 	_ "github.com/glebarez/sqlite"
 )
@@ -26,71 +24,11 @@ func NewHiscoreService() *HiscoreService {
 	return &HiscoreService{}
 }
 
-// resolveDbPath looks for db.sqlite in the following order:
-//  1. Path set in config.json (next to the exe)
-//  2. Common relative paths from the exe location
-//
-// If found via auto-detection, the path is saved to config.json so
-// future runs skip the search. Returns "" if nothing is found.
-func resolveDbPath() string {
-	exeDir := exeDir()
-	configPath := filepath.Join(exeDir, "config.json")
-
-	// 1. Check config.json for a saved path.
-	if data, err := os.ReadFile(configPath); err == nil {
-		var cfg struct {
-			DbPath string `json:"db_path"`
-		}
-		if json.Unmarshal(data, &cfg) == nil && cfg.DbPath != "" {
-			if _, err := os.Stat(cfg.DbPath); err == nil {
-				log.Printf("[db] using path from config.json: %s", cfg.DbPath)
-				return cfg.DbPath
-			}
-			log.Printf("[db] config.json path not found: %s", cfg.DbPath)
-		}
-	}
-
-	// 2. Search common locations relative to the exe.
-	candidates := []string{
-		filepath.Join(exeDir, "db.sqlite"),
-		filepath.Join(exeDir, "..", "db.sqlite"),
-		filepath.Join(exeDir, "..", "engine", "db.sqlite"),
-		filepath.Join(exeDir, "..", "..", "engine", "db.sqlite"),
-	}
-	for _, p := range candidates {
-		abs, _ := filepath.Abs(p)
-		if _, err := os.Stat(abs); err == nil {
-			log.Printf("[db] auto-detected database: %s", abs)
-			saveDbPathConfig(configPath, abs)
-			return abs
-		}
-	}
-
-	log.Printf("[db] db.sqlite not found — create config.json next to the exe with {\"db_path\": \"<path to db.sqlite>\"}")
-	return ""
-}
-
-func saveDbPathConfig(configPath, dbPath string) {
-	data, _ := json.MarshalIndent(map[string]string{"db_path": dbPath}, "", "  ")
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		log.Printf("[db] could not save config.json: %v", err)
-	}
-}
-
-func exeDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "."
-	}
-	return filepath.Dir(exe)
-}
-
 func (h *HiscoreService) Init() {
-	path := resolveDbPath()
-	if path == "" {
+	if cfg.DbPath == "" {
 		return
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", cfg.DbPath)
 	if err != nil {
 		log.Printf("[db] failed to open database: %v", err)
 		return

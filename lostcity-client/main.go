@@ -22,31 +22,20 @@ var assets embed.FS
 
 var hiscoreService *HiscoreService
 
-// gameWebURL is the 2004scape HTTP web server (WEB_PORT=80 in server .env).
-// Serves game assets: /crc, /title*, /config*, /ondemand.zip, etc.
-const gameWebURL = "http://localhost:80"
-
-// gameWSURL is the WebSocket endpoint on the 2004scape web server (WEB_PORT=80).
-// The web server accepts browser WebSocket connections and bridges them internally
-// to the game node (NODE_PORT=43594). Do NOT point this at port 43594 directly —
-// that port speaks the raw RS binary protocol, not HTTP/WebSocket.
-const gameWSURL = "ws://localhost"
-
-// wsProxyAddr is the local address the WebSocket proxy listens on.
-// The browser connects here; Go proxies to gameWSURL.
-// Using a separate port avoids WebView2 origin/CORS issues with the game server.
-const wsProxyAddr = ":43595"
-
 func init() {
+	loadConfig()
 	application.RegisterEvent[string]("time")
 	hiscoreService = NewHiscoreService()
 	hiscoreService.Init()
 }
 
-// startWSProxy starts a plain HTTP server on wsProxyAddr that accepts WebSocket
-// connections from the browser and bridges them to the game server at gameWSURL.
+// startWSProxy starts a plain HTTP server that accepts WebSocket connections
+// from the browser and bridges them to the game server.
 // Running as a separate localhost server sidesteps any WebView2 origin restrictions.
 func startWSProxy() {
+	gameWSURL  := fmt.Sprintf("ws://localhost:%d", cfg.WebPort)
+	proxyAddr  := fmt.Sprintf(":%d", cfg.ProxyPort)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithCancel(r.Context())
@@ -102,8 +91,8 @@ func startWSProxy() {
 		}
 	})
 
-	log.Printf("[ws proxy] listening on %s → %s", wsProxyAddr, gameWSURL)
-	if err := http.ListenAndServe(wsProxyAddr, mux); err != nil {
+	log.Printf("[ws proxy] listening on %s → %s", proxyAddr, gameWSURL)
+	if err := http.ListenAndServe(proxyAddr, mux); err != nil {
 		log.Printf("[ws proxy] server error: %v", err)
 	}
 }
@@ -118,8 +107,18 @@ type assetProxyHandler struct {
 }
 
 func (h *assetProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Local hiscore API — served directly, never proxied to game server.
-	if r.URL.Path == "/api/hiscores" {
+	switch r.URL.Path {
+	case "/client-config.js":
+		// Expose runtime config to the frontend (port may differ per user).
+		w.Header().Set("Content-Type", "application/javascript")
+		fmt.Fprintf(w, "window.SERVER_HOST = 'localhost:%d';\n", cfg.ProxyPort)
+		fmt.Fprintf(w, "window.SERVER_SECURED = false;\n")
+		fmt.Fprintf(w, "window.WASM_BASE_URL = '';\n")
+		fmt.Fprintf(w, "window.AUTO_START_CLIENT = true;\n")
+		return
+
+	case "/api/hiscores":
+		// Local hiscore API — served directly, never proxied to game server.
 		w.Header().Set("Content-Type", "application/json")
 		skill := r.URL.Query().Get("skill")
 		if skill == "" || skill == "overall" {
@@ -131,6 +130,7 @@ func (h *assetProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
 	if h.isEmbedded(r.URL.Path) {
 		h.embedded.ServeHTTP(w, r)
 		return
@@ -164,6 +164,7 @@ func main() {
 		log.Fatalf("failed to sub embedded FS: %v", err)
 	}
 
+	gameWebURL := fmt.Sprintf("http://localhost:%d", cfg.WebPort)
 	target, err := url.Parse(gameWebURL)
 	if err != nil {
 		log.Fatalf("invalid game web URL: %v", err)

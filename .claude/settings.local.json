@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/c/Program Files/Go/bin/go\" build -o lostcity.exe .)"
+    ]
+  }
+}
