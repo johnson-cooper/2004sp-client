@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	_ "embed"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -39,7 +40,7 @@ const wsProxyAddr = ":43595"
 func init() {
 	application.RegisterEvent[string]("time")
 	hiscoreService = NewHiscoreService()
-	hiscoreService.Init("../db.sqlite")
+	hiscoreService.Init()
 }
 
 // startWSProxy starts a plain HTTP server on wsProxyAddr that accepts WebSocket
@@ -117,6 +118,19 @@ type assetProxyHandler struct {
 }
 
 func (h *assetProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Local hiscore API — served directly, never proxied to game server.
+	if r.URL.Path == "/api/hiscores" {
+		w.Header().Set("Content-Type", "application/json")
+		skill := r.URL.Query().Get("skill")
+		if skill == "" || skill == "overall" {
+			w.Write([]byte(hiscoreService.GetHiscores()))
+		} else {
+			skillType := 0
+			fmt.Sscanf(skill, "%d", &skillType)
+			w.Write([]byte(hiscoreService.GetHiscoresByType(skillType)))
+		}
+		return
+	}
 	if h.isEmbedded(r.URL.Path) {
 		h.embedded.ServeHTTP(w, r)
 		return

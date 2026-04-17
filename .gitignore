@@ -11,6 +11,7 @@ lostcity-client/frontend/public/*.wasm
 # Go build artifacts
 lostcity-client/*.exe
 lostcity-client/lostcity-client
+lostcity-client/config.json
 
 # IDE
 .vscode/

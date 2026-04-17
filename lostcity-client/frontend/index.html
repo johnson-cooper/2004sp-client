@@ -5,215 +5,397 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>2004 Singleplayer Progressive</title>
         <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            html,
-            body {
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+
+            html, body {
                 background: #000;
                 overflow: hidden;
                 font-family: Arial, sans-serif;
+                height: 100vh;
+                width: 100vw;
             }
-            #game-container {
+
+            /* Root flex row: canvas | hiscores panel | toolbar */
+            #layout {
                 display: flex;
-                flex-wrap: nowrap;
                 width: 100vw;
                 height: 100vh;
             }
+
+            /* Canvas grows to fill all remaining space, letterboxes to preserve 765:503 */
+            #canvas-wrap {
+                flex: 1 1 0;
+                min-width: 0;
+                overflow: hidden;
+                background: #000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
             #canvas {
                 display: block;
-                flex: 1;
                 width: 100%;
                 height: 100%;
+                max-width: calc(100vh * 765 / 503);
+                max-height: calc(100vw * 503 / 765);
             }
+
+            /* Hiscores panel — slides in by animating max-width */
+            #hiscores-panel {
+                flex-shrink: 0;
+                flex-grow: 0;
+                flex-basis: auto;
+                width: 340px;
+                max-width: 0;
+                overflow: hidden;
+                background: #0c0c0c;
+                border-left: none;
+                display: flex;
+                flex-direction: column;
+                transition: max-width 0.2s ease;
+            }
+
+            #hiscores-panel.open {
+                max-width: 340px;
+                border-left: 1px solid #242424;
+            }
+
+            /* Toolbar — fixed width, never overlaps canvas */
             #toolbar {
-                width: 50px;
-                background: #1a1a1a;
+                flex: 0 0 44px;
+                background: #0f0f0f;
+                border-left: 1px solid #242424;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                padding-top: 10px;
-                gap: 5px;
-                border-left: 2px solid #333;
+                padding-top: 8px;
+                gap: 4px;
             }
-            .toolbar-btn {
-                width: 40px;
-                height: 40px;
-                background: #2d2d2d;
-                border: 2px solid #444;
-                border-radius: 5px;
+
+            .tool-btn {
+                width: 34px;
+                height: 34px;
+                background: #1a1a1a;
+                border: 1px solid #2e2e2e;
+                border-radius: 4px;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 20px;
-                color: #fff;
-                transition: all 0.2s;
+                font-size: 17px;
+                color: #666;
+                transition: background 0.15s, border-color 0.15s, color 0.15s;
+                user-select: none;
             }
-            .toolbar-btn:hover {
-                background: #3d3d3d;
-                border-color: #666;
+
+            .tool-btn:hover {
+                background: #222;
+                border-color: #444;
+                color: #ccc;
             }
-            .toolbar-btn.active {
-                background: #4a4a2a;
-                border-color: #8a8a3a;
+
+            .tool-btn.active {
+                background: #1c1800;
+                border-color: #7a5f10;
+                color: #ffd700;
             }
-            #hiscores-panel {
-                display: none;
-                position: fixed;
-                right: 50px;
-                top: 0;
-                width: 300px;
-                height: 100%;
-                background: #111;
-                border-left: 2px solid #333;
+
+            /* ── Hiscores panel internals ── */
+
+            .hs-header {
+                padding: 11px 12px 10px;
+                border-bottom: 1px solid #1e1e1e;
+                flex-shrink: 0;
+            }
+
+            .hs-title {
+                font-size: 11px;
+                font-weight: bold;
+                color: #ffd700;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+            }
+
+            /* Skill tab grid */
+            .hs-skills {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 3px;
+                padding: 8px;
+                flex-shrink: 0;
+                border-bottom: 1px solid #1e1e1e;
                 overflow-y: auto;
-                color: #fff;
-                padding: 10px;
-                z-index: 100;
+                max-height: 110px;
+                scrollbar-width: thin;
+                scrollbar-color: #2a2a2a #0c0c0c;
             }
-            #hiscores-panel.visible {
-                display: block;
+
+            .skill-tab {
+                font-size: 10px;
+                padding: 3px 8px;
+                background: #141414;
+                border: 1px solid #272727;
+                border-radius: 3px;
+                color: #666;
+                cursor: pointer;
+                white-space: nowrap;
+                transition: background 0.12s, color 0.12s, border-color 0.12s;
+                user-select: none;
             }
+
+            .skill-tab:hover {
+                background: #1e1e1e;
+                color: #aaa;
+                border-color: #3a3a3a;
+            }
+
+            .skill-tab.active {
+                background: #1c1800;
+                border-color: #7a5f10;
+                color: #ffd700;
+            }
+
+            /* Scrollable table area */
+            .hs-table-wrap {
+                flex: 1;
+                overflow-y: auto;
+                scrollbar-width: thin;
+                scrollbar-color: #2a2a2a #0c0c0c;
+            }
+
+            .hs-message {
+                padding: 24px 12px;
+                text-align: center;
+                color: #3a3a3a;
+                font-size: 12px;
+            }
+
+            table.hs-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 12px;
+            }
+
+            table.hs-table thead th {
+                position: sticky;
+                top: 0;
+                background: #111;
+                color: #444;
+                font-size: 10px;
+                font-weight: normal;
+                text-transform: uppercase;
+                letter-spacing: 0.6px;
+                padding: 7px 10px;
+                text-align: left;
+                border-bottom: 1px solid #1e1e1e;
+            }
+
+            table.hs-table thead th.r { text-align: right; }
+
+            table.hs-table tbody tr {
+                border-bottom: 1px solid #151515;
+                transition: background 0.08s;
+            }
+
+            table.hs-table tbody tr:hover { background: #141414; }
+
+            table.hs-table tbody td {
+                padding: 7px 10px;
+                color: #bbb;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 120px;
+            }
+
+            .td-rank  { color: #404040; font-size: 11px; width: 30px; }
+            .td-name  { color: #d0d0d0; max-width: 130px; }
+            .td-level { color: #ffd700; font-weight: bold; text-align: right; }
+            .td-xp    { color: #555; font-size: 11px; text-align: right; }
+
+            /* Debug console */
             #debug-console {
                 display: none;
                 position: fixed;
                 bottom: 0;
                 left: 0;
-                right: 0;
-                height: 150px;
-                background: #111;
+                right: 44px;
+                height: 140px;
+                background: rgba(0, 0, 0, 0.92);
                 color: #0f0;
                 font-family: monospace;
-                font-size: 12px;
-                padding: 10px;
+                font-size: 11px;
+                padding: 8px 10px;
                 overflow-y: auto;
                 z-index: 200;
-                border-top: 2px solid #333;
+                border-top: 1px solid #2a2a2a;
+                scrollbar-width: thin;
+                scrollbar-color: #2a2a2a transparent;
             }
-            #debug-console.visible {
-                display: block;
-            }
-            #debug-console .log-line {
-                margin: 2px 0;
-            }
-            #debug-console .error {
-                color: #f55;
-            }
-            #debug-console .warn {
-                color: #ff5;
-            }
-            .toggle-btn {
-                position: fixed;
-                bottom: 5px;
-                right: 5px;
-                background: #333;
-                color: #fff;
-                border: 1px solid #555;
-                padding: 2px 8px;
-                font-size: 10px;
-                cursor: pointer;
-                z-index: 201;
-            }
+
+            #debug-console.visible { display: block; }
+            #debug-console .log-line { margin: 1px 0; line-height: 1.5; }
+            #debug-console .error { color: #f55; }
+            #debug-console .warn  { color: #fa0; }
         </style>
     </head>
     <body>
-        <div id="game-container">
-            <canvas id="canvas" width="765" height="503"></canvas>
-            <div id="toolbar">
-                <div class="toolbar-btn" id="btn-hiscores" title="Hiscores">&#9813;</div>
+        <div id="layout">
+            <div id="canvas-wrap">
+                <canvas id="canvas" width="765" height="503"></canvas>
             </div>
+
             <div id="hiscores-panel">
-                <h2 style="margin-bottom: 10px; color: #ffd700">Hiscores</h2>
-                <div id="hiscores-list"></div>
+                <div class="hs-header">
+                    <div class="hs-title">Hiscores</div>
+                </div>
+                <div class="hs-skills" id="skill-tabs"></div>
+                <div class="hs-table-wrap" id="hs-content">
+                    <div class="hs-message" id="hs-msg">Select a skill above</div>
+                    <table class="hs-table" id="hs-table" style="display:none">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Player</th>
+                                <th class="r">Level</th>
+                                <th class="r">XP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hs-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="toolbar">
+                <div class="tool-btn" id="btn-hiscores" title="Hiscores">&#9813;</div>
             </div>
         </div>
+
         <div id="debug-console"></div>
-        <button class="toggle-btn" onclick="document.getElementById('debug-console').classList.toggle('visible')">Console</button>
 
         <script>
-            // Debug console - capture console.log and console.error
+            // Debug console
             (function () {
-                var consoleEl = document.getElementById('debug-console');
-                var originalLog = console.log;
-                var originalError = console.error;
-                var originalWarn = console.warn;
-
-                function addLog(type, args) {
-                    var line = document.createElement('div');
-                    line.className = 'log-line ' + type;
-                    line.textContent = new Date().toLocaleTimeString() + ' ' + Array.from(args).join(' ');
-                    consoleEl.appendChild(line);
-                    consoleEl.scrollTop = consoleEl.scrollHeight;
+                var el = document.getElementById('debug-console');
+                var _log = console.log, _err = console.error, _warn = console.warn;
+                function addLine(cls, args) {
+                    var d = document.createElement('div');
+                    d.className = 'log-line' + (cls ? ' ' + cls : '');
+                    d.textContent = new Date().toLocaleTimeString() + '  ' + Array.from(args).join(' ');
+                    el.appendChild(d);
+                    el.scrollTop = el.scrollHeight;
                 }
-
-                console.log = function () {
-                    addLog('', arguments);
-                    originalLog.apply(console, arguments);
-                };
-                console.error = function () {
-                    addLog('error', arguments);
-                    originalError.apply(console, arguments);
-                };
-                console.warn = function () {
-                    addLog('warn', arguments);
-                    originalWarn.apply(console, arguments);
-                };
-
-                // Toggle console with Backquote key
+                console.log   = function () { addLine('',      arguments); _log.apply(console,  arguments); };
+                console.error = function () { addLine('error', arguments); _err.apply(console,  arguments); };
+                console.warn  = function () { addLine('warn',  arguments); _warn.apply(console, arguments); };
                 document.addEventListener('keydown', function (e) {
-                    if (e.key === '`') {
-                        consoleEl.classList.toggle('visible');
-                    }
+                    if (e.key === '`') el.classList.toggle('visible');
                 });
             })();
 
-            // Hiscores toggle
-            var hiscoresBtn = document.getElementById('btn-hiscores');
-            var hiscoresPanel = document.getElementById('hiscores-panel');
-            var hiscoresVisible = false;
-            hiscoresBtn.addEventListener('click', function () {
-                hiscoresVisible = !hiscoresVisible;
-                hiscoresBtn.classList.toggle('active', hiscoresVisible);
-                hiscoresPanel.classList.toggle('visible', hiscoresVisible);
+            // Hiscores
+            (function () {
+                // IDs are hiscore.type = PlayerStat enum index + 1 (server uses stat + 1)
+                var SKILLS = [
+                    { id: 'overall', label: 'Overall' },
+                    { id: 1,  label: 'Attack' },
+                    { id: 2,  label: 'Defence' },
+                    { id: 3,  label: 'Strength' },
+                    { id: 4,  label: 'Hitpoints' },
+                    { id: 5,  label: 'Ranged' },
+                    { id: 6,  label: 'Prayer' },
+                    { id: 7,  label: 'Magic' },
+                    { id: 8,  label: 'Cooking' },
+                    { id: 9,  label: 'Woodcutting' },
+                    { id: 10, label: 'Fletching' },
+                    { id: 11, label: 'Fishing' },
+                    { id: 12, label: 'Firemaking' },
+                    { id: 13, label: 'Crafting' },
+                    { id: 14, label: 'Smithing' },
+                    { id: 15, label: 'Mining' },
+                    { id: 16, label: 'Herblore' },
+                    { id: 17, label: 'Agility' },
+                    { id: 18, label: 'Thieving' },
+                    { id: 21, label: 'Runecrafting' },
+                ];
 
-                if (hiscoresVisible && window.wails && window.wails.Runtime) {
-                    try {
-                        var data = window.wails.Runtime.Invoke('GetHiscores');
-                        updateHiscoresDisplay(data);
-                    } catch (e) {
-                        console.log('Hiscores not available:', e.message);
+                var panelEl   = document.getElementById('hiscores-panel');
+                var btnEl     = document.getElementById('btn-hiscores');
+                var tabsEl    = document.getElementById('skill-tabs');
+                var msgEl     = document.getElementById('hs-msg');
+                var tableEl   = document.getElementById('hs-table');
+                var bodyEl    = document.getElementById('hs-body');
+                var isOpen    = false;
+                var activeId  = 'overall';
+
+                function fmt(n) { return Number(n).toLocaleString(); }
+
+                function setLoading(msg) {
+                    msgEl.textContent = msg;
+                    msgEl.style.display = 'block';
+                    tableEl.style.display = 'none';
+                }
+
+                function renderRows(data) {
+                    if (!data || !data.length) {
+                        setLoading('No data available.');
+                        return;
                     }
+                    bodyEl.innerHTML = data.map(function (e) {
+                        return '<tr>' +
+                            '<td class="td-rank">' + e.rank + '</td>' +
+                            '<td class="td-name">' + e.username + '</td>' +
+                            '<td class="td-level">' + fmt(e.level) + '</td>' +
+                            '<td class="td-xp">'   + fmt(e.xp)   + '</td>' +
+                        '</tr>';
+                    }).join('');
+                    msgEl.style.display = 'none';
+                    tableEl.style.display = 'table';
                 }
-            });
 
-            function updateHiscoresDisplay(data) {
-                var list = document.getElementById('hiscores-list');
-                if (!data || data.length === 0) {
-                    list.innerHTML = '<p style="color: #888;">No hiscores data</p>';
-                    return;
+                function loadSkill(skillId) {
+                    setLoading('Loading\u2026');
+                    fetch('/api/hiscores?skill=' + skillId)
+                        .then(function (r) { return r.json(); })
+                        .then(renderRows)
+                        .catch(function (e) {
+                            setLoading('Failed to load.');
+                            console.error('[hiscores]', e);
+                        });
                 }
-                list.innerHTML = data
-                    .map(function (entry) {
-                        return '<div class="hiscore-skill">' + '<span class="hiscore-rank">#' + entry.rank + '</span>' + '<span class="hiscore-name">' + entry.username + '</span>' + '<span class="hiscore-level">' + entry.level + '</span>' + '</div>';
-                    })
-                    .join('');
-            }
+
+                // Build skill tabs
+                SKILLS.forEach(function (skill) {
+                    var tab = document.createElement('div');
+                    tab.className = 'skill-tab' + (skill.id === activeId ? ' active' : '');
+                    tab.textContent = skill.label;
+                    tab.addEventListener('click', function () {
+                        document.querySelectorAll('.skill-tab').forEach(function (t) {
+                            t.classList.remove('active');
+                        });
+                        tab.classList.add('active');
+                        activeId = skill.id;
+                        loadSkill(skill.id);
+                    });
+                    tabsEl.appendChild(tab);
+                });
+
+                btnEl.addEventListener('click', function () {
+                    isOpen = !isOpen;
+                    btnEl.classList.toggle('active', isOpen);
+                    panelEl.classList.toggle('open', isOpen);
+                    if (isOpen) loadSkill(activeId);
+                });
+            })();
         </script>
 
         <script>
-            // Server configuration
-            // WebSocket game connection goes through the local Go proxy (port 43595),
-            // which forwards to the game server (NODE_PORT=43594) without origin issues.
-            window.SERVER_HOST = 'localhost:43595';
+            window.SERVER_HOST    = 'localhost:43595';
             window.SERVER_SECURED = false;
-            window.WASM_BASE_URL = '';
+            window.WASM_BASE_URL  = '';
             window.AUTO_START_CLIENT = true;
         </script>
-        <!-- Load client.js as a module so import.meta.url is available (WASM loader needs it) -->
-        <!-- Injected dynamically so Vite/Rollup doesn't try to bundle it as an entry point -->
         <script>
             (function () {
                 var s = document.createElement('script');
