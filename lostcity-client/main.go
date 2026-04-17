@@ -1,0 +1,219 @@
+package main
+
+import (
+	"context"
+	"embed"
+	_ "embed"
+	"io/fs"
+	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/coder/websocket"
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+//go:embed all:frontend
+var assets embed.FS
+
+var hiscoreService *HiscoreService
+
+// gameWebURL is the 2004scape HTTP web server (WEB_PORT=80 in server .env).
+// Serves game assets: /crc, /title*, /config*, /ondemand.zip, etc.
+const gameWebURL = "http://localhost:80"
+
+// gameWSURL is the WebSocket endpoint on the 2004scape web server (WEB_PORT=80).
+// The web server accepts browser WebSocket connections and bridges them internally
+// to the game node (NODE_PORT=43594). Do NOT point this at port 43594 directly —
+// that port speaks the raw RS binary protocol, not HTTP/WebSocket.
+const gameWSURL = "ws://localhost"
+
+// wsProxyAddr is the local address the WebSocket proxy listens on.
+// The browser connects here; Go proxies to gameWSURL.
+// Using a separate port avoids WebView2 origin/CORS issues with the game server.
+const wsProxyAddr = ":43595"
+
+func init() {
+	application.RegisterEvent[string]("time")
+	hiscoreService = NewHiscoreService()
+	hiscoreService.Init("../db.sqlite")
+}
+
+// startWSProxy starts a plain HTTP server on wsProxyAddr that accepts WebSocket
+// connections from the browser and bridges them to the game server at gameWSURL.
+// Running as a separate localhost server sidesteps any WebView2 origin restrictions.
+func startWSProxy() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+
+		// Accept the browser's WebSocket connection; allow any origin.
+		clientConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			Subprotocols:       []string{"binary"},
+			InsecureSkipVerify: true,
+		})
+		if err != nil {
+			log.Printf("[ws proxy] accept: %v", err)
+			return
+		}
+		defer clientConn.CloseNow()
+
+		// Connect to the game server from Go (no browser Origin header).
+		gameConn, _, err := websocket.Dial(ctx, gameWSURL, &websocket.DialOptions{
+			Subprotocols: []string{"binary"},
+		})
+		if err != nil {
+			log.Printf("[ws proxy] dial %s: %v", gameWSURL, err)
+			clientConn.Close(websocket.StatusBadGateway, "game server unavailable")
+			return
+		}
+		defer gameConn.CloseNow()
+
+		log.Printf("[ws proxy] connected to game server")
+
+		// browser → game
+		go func() {
+			defer cancel()
+			for {
+				typ, msg, err := clientConn.Read(ctx)
+				if err != nil {
+					return
+				}
+				if err := gameConn.Write(ctx, typ, msg); err != nil {
+					return
+				}
+			}
+		}()
+
+		// game → browser
+		for {
+			typ, msg, err := gameConn.Read(ctx)
+			if err != nil {
+				return
+			}
+			if err := clientConn.Write(ctx, typ, msg); err != nil {
+				return
+			}
+		}
+	})
+
+	log.Printf("[ws proxy] listening on %s → %s", wsProxyAddr, gameWSURL)
+	if err := http.ListenAndServe(wsProxyAddr, mux); err != nil {
+		log.Printf("[ws proxy] server error: %v", err)
+	}
+}
+
+// assetProxyHandler serves embedded frontend files from frontend/dist and proxies
+// all unrecognised paths (game assets like /crc, /title*, /ondemand.zip) to the
+// game web server.
+type assetProxyHandler struct {
+	distFS   fs.FS
+	embedded http.Handler
+	proxy    *httputil.ReverseProxy
+}
+
+func (h *assetProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.isEmbedded(r.URL.Path) {
+		h.embedded.ServeHTTP(w, r)
+		return
+	}
+	h.proxy.ServeHTTP(w, r)
+}
+
+// isEmbedded reports whether the URL path exists as a file in frontend/dist.
+func (h *assetProxyHandler) isEmbedded(urlPath string) bool {
+	if urlPath == "/" || urlPath == "" {
+		return true
+	}
+	if strings.HasPrefix(urlPath, "/_wails") || strings.HasPrefix(urlPath, "/wails") {
+		return true
+	}
+	fsPath := strings.TrimPrefix(urlPath, "/")
+	f, err := h.distFS.Open(fsPath)
+	if err == nil {
+		f.Close()
+		return true
+	}
+	return false
+}
+
+func main() {
+	// Start the WebSocket proxy in the background before launching the app.
+	go startWSProxy()
+
+	distFS, err := fs.Sub(assets, "frontend/dist")
+	if err != nil {
+		log.Fatalf("failed to sub embedded FS: %v", err)
+	}
+
+	target, err := url.Parse(gameWebURL)
+	if err != nil {
+		log.Fatalf("invalid game web URL: %v", err)
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode >= 400 {
+			log.Printf("[proxy] %s %s → %d", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode)
+		} else {
+			log.Printf("[proxy] %s %s → %d (%d bytes)", resp.Request.Method, resp.Request.URL.Path, resp.StatusCode, resp.ContentLength)
+		}
+		return nil
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
+		log.Printf("[proxy] ERROR %s %s → %v  (is the game server running?)", r.Method, r.URL.Path, proxyErr)
+		http.Error(w, "game server unavailable: "+proxyErr.Error(), http.StatusBadGateway)
+	}
+
+	handler := &assetProxyHandler{
+		distFS:   distFS,
+		embedded: application.AssetFileServerFS(distFS),
+		proxy:    proxy,
+	}
+
+	app := application.New(application.Options{
+		Name:        "2004 Singleplayer Progressive",
+		Description: "Lost City MMO Client",
+		Services: []application.Service{
+			application.NewService(&GreetService{}),
+			application.NewService(hiscoreService),
+		},
+		Assets: application.AssetOptions{
+			Handler: handler,
+		},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+	})
+
+	app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:     "2004 Singleplayer Progressive",
+		Width:     1280,
+		Height:    720,
+		MinWidth:  765,
+		MinHeight: 503,
+		Mac: application.MacWindow{
+			InvisibleTitleBarHeight: 50,
+			Backdrop:                application.MacBackdropTranslucent,
+			TitleBar:                application.MacTitleBarHiddenInset,
+		},
+		BackgroundColour: application.NewRGB(0, 0, 0),
+		URL:              "/",
+	})
+
+	go func() {
+		for {
+			now := time.Now().Format(time.RFC1123)
+			app.Event.Emit("time", now)
+			time.Sleep(time.Second)
+		}
+	}()
+
+	if err = app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}

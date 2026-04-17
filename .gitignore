@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+bun.lock
+
+# Build outputs
+out/
+lostcity-client/frontend/dist/
+lostcity-client/frontend/public/*.js
+lostcity-client/frontend/public/*.wasm
+
+# Go build artifacts
+lostcity-client/*.exe
+lostcity-client/lostcity-client
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

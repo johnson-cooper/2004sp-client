@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=My Product
+Comment=A lostcity-client application
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/lostcity-client.exe %u
+Terminal=false
+Type=Application
+Icon=lostcity-client.exe
+Categories=Utility;
+StartupWMClass=lostcity-client.exe
+
+ 

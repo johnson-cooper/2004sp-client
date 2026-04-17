@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>2004 Singleplayer Progressive</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                background: #000;
+                overflow: hidden;
+                font-family: Arial, sans-serif;
+            }
+            #game-container {
+                display: flex;
+                flex-wrap: nowrap;
+                width: 100vw;
+                height: 100vh;
+            }
+            #canvas {
+                display: block;
+                flex: 1;
+                width: 100%;
+                height: 100%;
+            }
+            #toolbar {
+                width: 50px;
+                background: #1a1a1a;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                padding-top: 10px;
+                gap: 5px;
+                border-left: 2px solid #333;
+            }
+            .toolbar-btn {
+                width: 40px;
+                height: 40px;
+                background: #2d2d2d;
+                border: 2px solid #444;
+                border-radius: 5px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                color: #fff;
+                transition: all 0.2s;
+            }
+            .toolbar-btn:hover {
+                background: #3d3d3d;
+                border-color: #666;
+            }
+            .toolbar-btn.active {
+                background: #4a4a2a;
+                border-color: #8a8a3a;
+            }
+            #hiscores-panel {
+                display: none;
+                position: fixed;
+                right: 50px;
+                top: 0;
+                width: 300px;
+                height: 100%;
+                background: #111;
+                border-left: 2px solid #333;
+                overflow-y: auto;
+                color: #fff;
+                padding: 10px;
+                z-index: 100;
+            }
+            #hiscores-panel.visible {
+                display: block;
+            }
+            #debug-console {
+                display: none;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 150px;
+                background: #111;
+                color: #0f0;
+                font-family: monospace;
+                font-size: 12px;
+                padding: 10px;
+                overflow-y: auto;
+                z-index: 200;
+                border-top: 2px solid #333;
+            }
+            #debug-console.visible {
+                display: block;
+            }
+            #debug-console .log-line {
+                margin: 2px 0;
+            }
+            #debug-console .error {
+                color: #f55;
+            }
+            #debug-console .warn {
+                color: #ff5;
+            }
+            .toggle-btn {
+                position: fixed;
+                bottom: 5px;
+                right: 5px;
+                background: #333;
+                color: #fff;
+                border: 1px solid #555;
+                padding: 2px 8px;
+                font-size: 10px;
+                cursor: pointer;
+                z-index: 201;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="game-container">
+            <canvas id="canvas" width="765" height="503"></canvas>
+            <div id="toolbar">
+                <div class="toolbar-btn" id="btn-hiscores" title="Hiscores">&#9813;</div>
+            </div>
+            <div id="hiscores-panel">
+                <h2 style="margin-bottom: 10px; color: #ffd700">Hiscores</h2>
+                <div id="hiscores-list"></div>
+            </div>
+        </div>
+        <div id="debug-console"></div>
+        <button class="toggle-btn" onclick="document.getElementById('debug-console').classList.toggle('visible')">Console</button>
+
+        <script>
+            // Debug console - capture console.log and console.error
+            (function () {
+                var consoleEl = document.getElementById('debug-console');
+                var originalLog = console.log;
+                var originalError = console.error;
+                var originalWarn = console.warn;
+
+                function addLog(type, args) {
+                    var line = document.createElement('div');
+                    line.className = 'log-line ' + type;
+                    line.textContent = new Date().toLocaleTimeString() + ' ' + Array.from(args).join(' ');
+                    consoleEl.appendChild(line);
+                    consoleEl.scrollTop = consoleEl.scrollHeight;
+                }
+
+                console.log = function () {
+                    addLog('', arguments);
+                    originalLog.apply(console, arguments);
+                };
+                console.error = function () {
+                    addLog('error', arguments);
+                    originalError.apply(console, arguments);
+                };
+                console.warn = function () {
+                    addLog('warn', arguments);
+                    originalWarn.apply(console, arguments);
+                };
+
+                // Toggle console with Backquote key
+                document.addEventListener('keydown', function (e) {
+                    if (e.key === '`') {
+                        consoleEl.classList.toggle('visible');
+                    }
+                });
+            })();
+
+            // Hiscores toggle
+            var hiscoresBtn = document.getElementById('btn-hiscores');
+            var hiscoresPanel = document.getElementById('hiscores-panel');
+            var hiscoresVisible = false;
+            hiscoresBtn.addEventListener('click', function () {
+                hiscoresVisible = !hiscoresVisible;
+                hiscoresBtn.classList.toggle('active', hiscoresVisible);
+                hiscoresPanel.classList.toggle('visible', hiscoresVisible);
+
+                if (hiscoresVisible && window.wails && window.wails.Runtime) {
+                    try {
+                        var data = window.wails.Runtime.Invoke('GetHiscores');
+                        updateHiscoresDisplay(data);
+                    } catch (e) {
+                        console.log('Hiscores not available:', e.message);
+                    }
+                }
+            });
+
+            function updateHiscoresDisplay(data) {
+                var list = document.getElementById('hiscores-list');
+                if (!data || data.length === 0) {
+                    list.innerHTML = '<p style="color: #888;">No hiscores data</p>';
+                    return;
+                }
+                list.innerHTML = data
+                    .map(function (entry) {
+                        return '<div class="hiscore-skill">' + '<span class="hiscore-rank">#' + entry.rank + '</span>' + '<span class="hiscore-name">' + entry.username + '</span>' + '<span class="hiscore-level">' + entry.level + '</span>' + '</div>';
+                    })
+                    .join('');
+            }
+        </script>
+
+        <script>
+            // Server configuration
+            // WebSocket game connection goes through the local Go proxy (port 43595),
+            // which forwards to the game server (NODE_PORT=43594) without origin issues.
+            window.SERVER_HOST = 'localhost:43595';
+            window.SERVER_SECURED = false;
+            window.WASM_BASE_URL = '';
+            window.AUTO_START_CLIENT = true;
+        </script>
+        <!-- Load client.js as a module so import.meta.url is available (WASM loader needs it) -->
+        <!-- Injected dynamically so Vite/Rollup doesn't try to bundle it as an entry point -->
+        <script>
+            (function () {
+                var s = document.createElement('script');
+                s.type = 'module';
+                s.src = 'client.js';
+                document.head.appendChild(s);
+            })();
+        </script>
+    </body>
+</html>
