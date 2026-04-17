@@ -22,6 +22,7 @@ lostcity-client/config.json
 # OS
 .DS_Store
 Thumbs.db
+.claude
 
 # Logs
 *.log
