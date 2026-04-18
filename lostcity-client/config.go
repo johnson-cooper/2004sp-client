@@ -62,7 +62,6 @@ func loadConfig() {
 
 	// Always write config.json next to the exe on first run so users can
 	// find and edit it (e.g. to set db_path manually).
-	configPath := filepath.Join(exeDir(), "config.json")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		saveConfig()
 	}
