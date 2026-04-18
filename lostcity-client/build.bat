@@ -25,10 +25,6 @@ go build -o lostcity.exe
 if errorlevel 1 echo FAILED && pause && exit /b 1
 
 echo.
-echo [4/4] Copying database...
-copy /Y ..\db.sqlite . >nul
-
-echo.
 echo === Build Complete ===
 echo.
 echo Run: lostcity-client\lostcity.exe

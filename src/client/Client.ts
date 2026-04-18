@@ -85,6 +85,37 @@ const SCROLLBAR_GRIP_LOWLIGHT = 0x332d25;
 export class Client extends GameShell {
     static cameraZoom: number = 1;
     static levelExperience: number[] = [];
+
+    // Skill names indexed by PlayerStat enum (0=Attack … 20=Runecraft)
+    static readonly XP_SKILL_NAMES: string[] = [
+        'Attack', 'Defence', 'Strength', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
+        'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting',
+        'Smithing', 'Mining', 'Herblore', 'Agility', 'Thieving', '', '', 'Runecrafting'
+    ];
+
+    // CSS colour string per skill
+    static readonly XP_SKILL_COLOURS: string[] = [
+        '#ff6060', // Attack
+        '#6060ff', // Defence
+        '#60ff60', // Strength
+        '#ffffff', // Hitpoints
+        '#a0ff60', // Ranged
+        '#ffffaa', // Prayer
+        '#60ffff', // Magic
+        '#ffa040', // Cooking
+        '#80ff60', // Woodcutting
+        '#60c0ff', // Fletching
+        '#4090ff', // Fishing
+        '#ff8020', // Firemaking
+        '#ffcc80', // Crafting
+        '#aaaaaa', // Smithing
+        '#cc9966', // Mining
+        '#60ffaa', // Herblore
+        '#80ffdd', // Agility
+        '#ff80cc', // Thieving
+        '#ffffff', '#ffffff', // unused (STAT18/STAT19)
+        '#ccccff', // Runecrafting
+    ];
     static readbit = new Int32Array(32);
 
     static nodeId: number = 10;
@@ -392,6 +423,17 @@ export class Client extends GameShell {
     private statBaseLevel: number[] = [];
     private statXP: number[] = [];
 
+    // XP drops & session tracker
+    private xpDrops: { skill: number; amount: number; y: number; timer: number }[] = [];
+    // xpSessionStart[i] = XP at login for skill i (-1 = not yet seen this session).
+    // Session gained = statXP[i] - xpSessionStart[i].  Reset by snapping baseline to current XP.
+    private xpSessionStart: number[] = new Array(21).fill(-1);
+
+    // Middle mouse camera drag
+    private midDragActive: boolean = false;
+    private midDragLastX: number = 0;
+    private midDragLastY: number = 0;
+
     private oneMouseButton: number = 0;
     private isMenuOpen: boolean = false;
     private menuNumEntries: number = 0;
@@ -575,6 +617,17 @@ export class Client extends GameShell {
         }
 
         console.log(`RS2 user client - release #${CLIENT_VERSION}`);
+
+        // Expose reset function so the HTML panel's reset button can call it.
+        // Snaps the baseline to current XP so all future gains are counted from now.
+        (window as any).resetXpTracker = (): void => {
+            for (let i: number = 0; i < 21; i++) {
+                if (this.xpSessionStart[i] >= 0) {
+                    this.xpSessionStart[i] = this.statXP[i] ?? 0;
+                }
+            }
+            this.updateXpTrackerGlobal();
+        };
 
         Client.nodeId = nodeid;
         Client.memServer = members;
@@ -1220,6 +1273,7 @@ export class Client extends GameShell {
             await this.titleScreenDraw();
         } else {
             this.gameDraw();
+            this.drawXpDrops();
         }
 
         if (this.isMobile) {
@@ -5063,6 +5117,96 @@ export class Client extends GameShell {
         }
     }
 
+    private drawXpDrops(): void {
+        if (!this.ingame) return;
+
+        // Stagger new drops so they don't all start at the same y
+        const DROP_X: number = 506;   // right edge of 3D viewport (before sidebar)
+        const DROP_LIFETIME: number = 160;
+        const FADE_TICKS: number = 60; // fade out over last 60 ticks
+
+        // Separate active drops from stacked positions: push older drops up by 14px per entry below them
+        // (handled implicitly: each drop has its own y that floats independently)
+
+        canvas2d.save();
+
+        // Clip to the 3D viewport so drops never bleed above the top edge
+        canvas2d.beginPath();
+        canvas2d.rect(0, 0, DROP_X + 4, canvas2d.canvas.height);
+        canvas2d.clip();
+
+        canvas2d.font = 'bold 11px Arial, sans-serif';
+        canvas2d.textAlign = 'right';
+
+        for (let i: number = this.xpDrops.length - 1; i >= 0; i--) {
+            const drop = this.xpDrops[i];
+
+            // Animate: float upward
+            drop.y -= 0.4;
+            drop.timer--;
+
+            if (drop.timer <= 0 || drop.y < -14) {
+                this.xpDrops.splice(i, 1);
+                continue;
+            }
+
+            const alpha: number = drop.timer < FADE_TICKS ? drop.timer / FADE_TICKS : 1.0;
+            canvas2d.globalAlpha = alpha;
+
+            const skillName: string = Client.XP_SKILL_NAMES[drop.skill] ?? '';
+            const colour: string = Client.XP_SKILL_COLOURS[drop.skill] ?? '#ffffff';
+            const text: string = `+${drop.amount.toLocaleString()} ${skillName}`;
+
+            // Drop shadow
+            canvas2d.fillStyle = 'black';
+            canvas2d.fillText(text, DROP_X + 1, drop.y + 1);
+            // Coloured text
+            canvas2d.fillStyle = colour;
+            canvas2d.fillText(text, DROP_X, drop.y);
+        }
+
+        canvas2d.globalAlpha = 1.0;
+        canvas2d.restore();
+    }
+
+    // Pushes live XP session data to window.xpTrackerData and fires 'xpupdate'
+    // so the HTML side panel can re-render without polling.
+    private updateXpTrackerGlobal(): void {
+        const entries: object[] = [];
+        for (let i: number = 0; i < 21; i++) {
+            const startXP: number = this.xpSessionStart[i];
+            if (startXP < 0) continue;                      // never synced this session
+            const xp: number = this.statXP[i] ?? 0;
+            const gained: number = xp - startXP;
+            if (gained <= 0) continue;                       // no session gain yet
+
+            const level: number = this.statBaseLevel[i] ?? 1;
+            let progressPct: number = 100;
+            let xpToNext: number = 0;
+            if (level < 99) {
+                const levelStartXP: number = level > 1 ? Client.levelExperience[level - 2] : 0;
+                const levelNextXP: number = Client.levelExperience[level - 1];
+                const range: number = levelNextXP - levelStartXP;
+                if (range > 0) {
+                    progressPct = Math.max(0, Math.min(100, ((xp - levelStartXP) / range) * 100));
+                    xpToNext = Math.max(0, levelNextXP - xp);
+                }
+            }
+            entries.push({
+                skill: i,
+                name: Client.XP_SKILL_NAMES[i] ?? '',
+                colour: Client.XP_SKILL_COLOURS[i] ?? '#ffffff',
+                gained,
+                level,
+                xp,
+                progressPct,
+                xpToNext,
+            });
+        }
+        (window as any).xpTrackerData = { entries };
+        window.dispatchEvent(new CustomEvent('xpupdate'));
+    }
+
     private otherOverlays(): void {
         this.drawPrivateMessages();
 
@@ -6897,6 +7041,7 @@ export class Client extends GameShell {
                 const xp: number = this.in.g4();
                 const level: number = this.in.g1();
 
+                const prevXP: number = this.statXP[stat] ?? 0;
                 this.statXP[stat] = xp;
                 this.statEffectiveLevel[stat] = level;
                 this.statBaseLevel[stat] = 1;
@@ -6904,6 +7049,17 @@ export class Client extends GameShell {
                 for (let i: number = 0; i < 98; i++) {
                     if (xp >= Client.levelExperience[i]) {
                         this.statBaseLevel[stat] = i + 2;
+                    }
+                }
+
+                // Capture session baseline on first sight of each stat (login sync).
+                if (this.xpSessionStart[stat] < 0) {
+                    this.xpSessionStart[stat] = xp;
+                } else if (xp > prevXP) {
+                    // Real gain during play — update tracker and optionally show XP drop.
+                    this.updateXpTrackerGlobal();
+                    if ((window as any).XP_DROPS_ENABLED !== false) {
+                        this.xpDrops.push({ skill: stat, amount: xp - prevXP, y: 60, timer: 100 });
                     }
                 }
 
@@ -11870,7 +12026,28 @@ export class Client extends GameShell {
         }
     }
 
+    override mouseDown(x: number, y: number, e: MouseEvent) {
+        if (e.button === 1) {
+            // Middle mouse: start camera drag, do not pass to game logic
+            this.midDragActive = true;
+            this.midDragLastX = x;
+            this.midDragLastY = y;
+            return;
+        }
+        super.mouseDown(x, y, e);
+    }
+
     override mouseUp(x: number, y: number, e: MouseEvent) {
+        if (e.button === 1) {
+            // Middle mouse released: stop camera drag and decay velocity
+            this.midDragActive = false;
+            this.keyHeld[1] = 0;
+            this.keyHeld[2] = 0;
+            this.keyHeld[3] = 0;
+            this.keyHeld[4] = 0;
+            return;
+        }
+
         this.idleTimer = performance.now();
         this.mouseButton = 0;
 
@@ -12021,6 +12198,31 @@ export class Client extends GameShell {
 
             if (InputTracking.active) {
                 InputTracking.mouseMoved(x, y, e.pointerType);
+            }
+
+            // Middle mouse camera drag — emulate arrow keys like the mobile panning code
+            if (this.midDragActive) {
+                const dx: number = x - this.midDragLastX;
+                const dy: number = y - this.midDragLastY;
+
+                if (dx > 1) {
+                    this.keyHeld[2] = 1; this.keyHeld[1] = 0;
+                } else if (dx < -1) {
+                    this.keyHeld[1] = 1; this.keyHeld[2] = 0;
+                } else {
+                    this.keyHeld[1] = 0; this.keyHeld[2] = 0;
+                }
+
+                if (dy > 1) {
+                    this.keyHeld[4] = 1; this.keyHeld[3] = 0;
+                } else if (dy < -1) {
+                    this.keyHeld[3] = 1; this.keyHeld[4] = 0;
+                } else {
+                    this.keyHeld[3] = 0; this.keyHeld[4] = 0;
+                }
+
+                this.midDragLastX = x;
+                this.midDragLastY = y;
             }
         } else {
             // custom: touchscreen support

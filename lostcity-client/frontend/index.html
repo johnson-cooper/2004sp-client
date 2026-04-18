@@ -15,7 +15,7 @@
                 width: 100vw;
             }
 
-            /* Root flex row: canvas | hiscores panel | toolbar */
+            /* Root flex row: canvas | hiscores panel | xp tracker panel | toolbar */
             #layout {
                 display: flex;
                 width: 100vw;
@@ -41,12 +41,11 @@
                 max-height: calc(100vw * 503 / 765);
             }
 
-            /* Hiscores panel — slides in by animating max-width */
-            #hiscores-panel {
+            /* ── Shared side panel base ── */
+            .side-panel {
                 flex-shrink: 0;
                 flex-grow: 0;
                 flex-basis: auto;
-                width: 340px;
                 max-width: 0;
                 overflow: hidden;
                 background: #0c0c0c;
@@ -56,10 +55,17 @@
                 transition: max-width 0.2s ease;
             }
 
-            #hiscores-panel.open {
-                max-width: 340px;
+            .side-panel.open {
                 border-left: 1px solid #242424;
             }
+
+            /* Hiscores panel */
+            #hiscores-panel { width: 340px; }
+            #hiscores-panel.open { max-width: 340px; }
+
+            /* XP Tracker panel */
+            #xptracker-panel { width: 280px; }
+            #xptracker-panel.open { max-width: 280px; }
 
             /* Toolbar — fixed width, never overlaps canvas */
             #toolbar {
@@ -214,6 +220,128 @@
             .td-level { color: #ffd700; font-weight: bold; text-align: right; }
             .td-xp    { color: #555; font-size: 11px; text-align: right; }
 
+            /* ── XP Tracker panel internals ── */
+
+            .xpt-header {
+                padding: 11px 12px 10px;
+                border-bottom: 1px solid #1e1e1e;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+
+            .xpt-title {
+                font-size: 11px;
+                font-weight: bold;
+                color: #ffd700;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                white-space: nowrap;
+            }
+
+            .xpt-reset-btn {
+                font-size: 10px;
+                padding: 3px 8px;
+                background: #1a1a1a;
+                border: 1px solid #2e2e2e;
+                border-radius: 3px;
+                color: #666;
+                cursor: pointer;
+                white-space: nowrap;
+                transition: background 0.12s, color 0.12s, border-color 0.12s;
+                user-select: none;
+            }
+
+            .xpt-reset-btn:hover {
+                background: #2a0000;
+                border-color: #6a2020;
+                color: #ff8080;
+            }
+
+            .xpt-scroll {
+                flex: 1;
+                overflow-y: auto;
+                padding: 6px 0;
+                scrollbar-width: thin;
+                scrollbar-color: #2a2a2a #0c0c0c;
+            }
+
+            .xpt-empty {
+                padding: 28px 14px;
+                text-align: center;
+                color: #2e2e2e;
+                font-size: 12px;
+            }
+
+            .xpt-row {
+                padding: 8px 12px 7px;
+                border-bottom: 1px solid #111;
+            }
+
+            .xpt-row:last-child { border-bottom: none; }
+
+            .xpt-row-top {
+                display: flex;
+                align-items: baseline;
+                gap: 6px;
+                margin-bottom: 5px;
+            }
+
+            .xpt-skill-name {
+                font-size: 11px;
+                font-weight: bold;
+                color: #e8e8e8;
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .xpt-level {
+                font-size: 10px;
+                color: #aaa;
+                white-space: nowrap;
+            }
+
+            .xpt-gained {
+                font-size: 11px;
+                color: #90ee90;
+                font-weight: bold;
+                white-space: nowrap;
+            }
+
+            /* Progress bar track */
+            .xpt-bar-track {
+                height: 5px;
+                background: #1a1a1a;
+                border-radius: 3px;
+                overflow: hidden;
+                margin-bottom: 4px;
+            }
+
+            .xpt-bar-fill {
+                height: 100%;
+                border-radius: 3px;
+                transition: width 0.3s ease;
+                opacity: 0.85;
+            }
+
+            .xpt-to-next {
+                font-size: 10px;
+                color: #777;
+                text-align: right;
+            }
+
+            .xpt-maxed {
+                font-size: 10px;
+                color: #7a5f10;
+                text-align: right;
+                font-weight: bold;
+                letter-spacing: 1px;
+            }
+
             /* Debug console */
             #debug-console {
                 display: none;
@@ -246,7 +374,7 @@
                 <canvas id="canvas" width="765" height="503"></canvas>
             </div>
 
-            <div id="hiscores-panel">
+            <div id="hiscores-panel" class="side-panel">
                 <div class="hs-header">
                     <div class="hs-title">Hiscores</div>
                 </div>
@@ -267,8 +395,21 @@
                 </div>
             </div>
 
+            <div id="xptracker-panel" class="side-panel">
+                <div class="xpt-header">
+                    <div class="xpt-title">XP Tracker</div>
+                    <div class="xpt-reset-btn" id="btn-xp-reset" title="Reset session XP">Reset</div>
+                </div>
+                <div class="xpt-scroll" id="xpt-scroll">
+                    <div class="xpt-empty" id="xpt-empty">No XP gained this session</div>
+                    <div id="xpt-skills"></div>
+                </div>
+            </div>
+
             <div id="toolbar">
                 <div class="tool-btn" id="btn-hiscores" title="Hiscores">&#9813;</div>
+                <div class="tool-btn" id="btn-xpdrops" title="XP Drops">XP</div>
+                <div class="tool-btn" id="btn-xptracker" title="XP Tracker">&#128200;</div>
             </div>
         </div>
 
@@ -386,6 +527,73 @@
                     btnEl.classList.toggle('active', isOpen);
                     panelEl.classList.toggle('open', isOpen);
                     if (isOpen) loadSkill(activeId);
+                });
+            })();
+
+            // XP Drops toggle
+            (function () {
+                var btn = document.getElementById('btn-xpdrops');
+                window.XP_DROPS_ENABLED = true;
+                btn.classList.add('active');
+                btn.addEventListener('click', function () {
+                    window.XP_DROPS_ENABLED = !window.XP_DROPS_ENABLED;
+                    btn.classList.toggle('active', window.XP_DROPS_ENABLED);
+                });
+            })();
+
+            // XP Tracker panel
+            (function () {
+                var panelEl  = document.getElementById('xptracker-panel');
+                var btnEl    = document.getElementById('btn-xptracker');
+                var resetBtn = document.getElementById('btn-xp-reset');
+                var emptyEl  = document.getElementById('xpt-empty');
+                var skillsEl = document.getElementById('xpt-skills');
+                var isOpen   = false;
+
+                function fmt(n) { return Number(n).toLocaleString(); }
+
+                function renderTracker() {
+                    var data = window.xpTrackerData;
+                    if (!data || !data.entries || !data.entries.length) {
+                        emptyEl.style.display = 'block';
+                        skillsEl.innerHTML = '';
+                        return;
+                    }
+                    emptyEl.style.display = 'none';
+                    skillsEl.innerHTML = data.entries.map(function (e) {
+                        var gained   = e.gained   | 0;
+                        var xpToNext = e.xpToNext | 0;
+                        var pct = Math.max(0, Math.min(100, e.progressPct || 0)).toFixed(2);
+                        var subline = e.level >= 99
+                            ? '<div class="xpt-maxed">MAX LEVEL</div>'
+                            : '<div class="xpt-to-next">' + fmt(xpToNext) + ' xp to level ' + (e.level + 1) + '</div>';
+                        return '<div class="xpt-row">' +
+                            '<div class="xpt-row-top">' +
+                                '<span class="xpt-skill-name">' + e.name + '</span>' +
+                                '<span class="xpt-level">Lv&nbsp;' + e.level + '</span>' +
+                                '<span class="xpt-gained">+' + fmt(gained) + '</span>' +
+                            '</div>' +
+                            '<div class="xpt-bar-track">' +
+                                '<div class="xpt-bar-fill" style="width:' + pct + '%;background:' + e.colour + '"></div>' +
+                            '</div>' +
+                            subline +
+                        '</div>';
+                    }).join('');
+                }
+
+                window.addEventListener('xpupdate', renderTracker);
+
+                resetBtn.addEventListener('click', function () {
+                    if (typeof window.resetXpTracker === 'function') {
+                        window.resetXpTracker();
+                    }
+                });
+
+                btnEl.addEventListener('click', function () {
+                    isOpen = !isOpen;
+                    btnEl.classList.toggle('active', isOpen);
+                    panelEl.classList.toggle('open', isOpen);
+                    if (isOpen) renderTracker();
                 });
             })();
         </script>

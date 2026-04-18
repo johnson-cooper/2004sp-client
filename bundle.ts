@@ -57,6 +57,14 @@ async function applyTerser(script: BunOutput): Promise<boolean> {
             nth_identifier: nth_identifier,
             properties: {
                 reserved: [
+                    // xpTrackerData entry fields (read by un-bundled HTML)
+                    'skill',
+                    'colour',
+                    'gained',
+                    'xp',
+                    'progressPct',
+                    'xpToNext',
+
                     // stdlib
                     'willReadFrequently',
                     'usedJSHeapSize',
