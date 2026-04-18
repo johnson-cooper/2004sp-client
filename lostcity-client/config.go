@@ -53,17 +53,18 @@ func loadConfig() {
 	// Auto-detect db.sqlite if not set in config.
 	if cfg.DbPath == "" {
 		cfg.DbPath = detectDbPath()
-		if cfg.DbPath != "" {
-			saveConfig()
-		}
 	} else {
 		if _, err := os.Stat(cfg.DbPath); err != nil {
 			log.Printf("[config] db_path not found: %s — trying auto-detect", cfg.DbPath)
 			cfg.DbPath = detectDbPath()
-			if cfg.DbPath != "" {
-				saveConfig()
-			}
 		}
+	}
+
+	// Always write config.json next to the exe on first run so users can
+	// find and edit it (e.g. to set db_path manually).
+	configPath := filepath.Join(exeDir(), "config.json")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		saveConfig()
 	}
 
 	log.Printf("[config] web_port=%d  proxy_port=%d  db=%s",
@@ -85,10 +86,8 @@ func saveConfig() {
 func detectDbPath() string {
 	dir := exeDir()
 	candidates := []string{
+		filepath.Join(dir, "engine", "db.sqlite"),
 		filepath.Join(dir, "db.sqlite"),
-		filepath.Join(dir, "..", "db.sqlite"),
-		filepath.Join(dir, "..", "engine", "db.sqlite"),
-		filepath.Join(dir, "..", "..", "engine", "db.sqlite"),
 	}
 	for _, p := range candidates {
 		abs, _ := filepath.Abs(p)
