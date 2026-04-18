@@ -4,9 +4,6 @@ bun.lock
 
 # Build outputs
 out/
-lostcity-client/frontend/dist/
-lostcity-client/frontend/public/*.js
-lostcity-client/frontend/public/*.wasm
 
 # Go build artifacts
 lostcity-client/*.exe

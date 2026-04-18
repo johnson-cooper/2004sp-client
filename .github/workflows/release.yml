@@ -1,0 +1,209 @@
+name: Build and Release
+
+# Trigger: push a tag like "v0.1.0" → builds all platforms and creates a GitHub release
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # 1. Build the JS bundle once and share it with all platform builds
+  # ──────────────────────────────────────────────────────────────────────
+  build-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Bundle TypeScript
+        working-directory: .
+        run: bun run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: js-bundle
+          path: |
+            out/client.js
+            out/mapview.js
+            out/tinymidipcm.wasm
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 2. Windows (amd64) — exe with embedded icon
+  # ──────────────────────────────────────────────────────────────────────
+  build-windows:
+    needs: build-js
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: js-bundle
+          path: out/
+
+      - name: Copy bundle to frontend
+        shell: cmd
+        run: |
+          copy out\client.js lostcity-client\frontend\public\
+          copy out\tinymidipcm.wasm lostcity-client\frontend\public\
+          copy out\client.js lostcity-client\frontend\dist\
+          copy out\tinymidipcm.wasm lostcity-client\frontend\dist\
+
+      - name: Install goversioninfo
+        run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
+
+      - name: Embed icon
+        working-directory: lostcity-client
+        run: goversioninfo -64 -o resource.syso
+
+      - name: Build
+        working-directory: lostcity-client
+        run: go build -ldflags="-H windowsgui" -o 2004sp-client-windows-amd64.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-windows
+          path: lostcity-client/2004sp-client-windows-amd64.exe
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 3. macOS — .app bundle with icons.icns (Intel + Apple Silicon)
+  # ──────────────────────────────────────────────────────────────────────
+  build-macos:
+    needs: build-js
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: js-bundle
+          path: out/
+
+      - name: Copy bundle to frontend
+        run: |
+          cp out/client.js lostcity-client/frontend/public/
+          cp out/tinymidipcm.wasm lostcity-client/frontend/public/
+          cp out/client.js lostcity-client/frontend/dist/
+          cp out/tinymidipcm.wasm lostcity-client/frontend/dist/
+
+      - name: Build
+        working-directory: lostcity-client
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: go build -o 2004sp-client-macos-${{ matrix.arch }}
+
+      - name: Create .app bundle
+        working-directory: lostcity-client
+        run: |
+          APP=2004sp-client-macos-${{ matrix.arch }}.app
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+          cp 2004sp-client-macos-${{ matrix.arch }} "$APP/Contents/MacOS/lostcity"
+          cp build/darwin/Info.plist "$APP/Contents/"
+          cp build/darwin/icons.icns "$APP/Contents/Resources/"
+          zip -r 2004sp-client-macos-${{ matrix.arch }}.zip "$APP"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-macos-${{ matrix.arch }}
+          path: lostcity-client/2004sp-client-macos-${{ matrix.arch }}.zip
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 4. Linux (amd64) — binary + icon + .desktop file in a tarball
+  # ──────────────────────────────────────────────────────────────────────
+  build-linux:
+    needs: build-js
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install WebKit/GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-4-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: js-bundle
+          path: out/
+
+      - name: Copy bundle to frontend
+        run: |
+          cp out/client.js lostcity-client/frontend/public/
+          cp out/tinymidipcm.wasm lostcity-client/frontend/public/
+          cp out/client.js lostcity-client/frontend/dist/
+          cp out/tinymidipcm.wasm lostcity-client/frontend/dist/
+
+      - name: Build
+        working-directory: lostcity-client
+        run: go build -o 2004sp-client-linux-amd64
+
+      - name: Package
+        working-directory: lostcity-client
+        run: |
+          mkdir -p pkg
+          cp 2004sp-client-linux-amd64 pkg/2004sp-client
+          cp build/appicon.png pkg/icon.png
+          cat > pkg/lostcity.desktop << 'EOF'
+          [Desktop Entry]
+          Version=1.0
+          Name=2004scape
+          Comment=Lost City MMO Client
+          Exec=./2004sp-client
+          Icon=./icon.png
+          Terminal=false
+          Type=Application
+          Categories=Game;
+          StartupWMClass=lostcity
+          EOF
+          tar -czf 2004sp-client-linux-amd64.tar.gz -C pkg .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-linux
+          path: lostcity-client/2004sp-client-linux-amd64.tar.gz
+
+  # ──────────────────────────────────────────────────────────────────────
+  # 5. Create GitHub Release with all binaries
+  # ──────────────────────────────────────────────────────────────────────
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/build-windows/2004sp-client-windows-amd64.exe
+            artifacts/build-macos-amd64/2004sp-client-macos-amd64.zip
+            artifacts/build-macos-arm64/2004sp-client-macos-arm64.zip
+            artifacts/build-linux/2004sp-client-linux-amd64.tar.gz

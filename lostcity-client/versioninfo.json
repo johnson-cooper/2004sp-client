@@ -20,7 +20,7 @@
 	},
 	"StringFileInfo": {
 		"Comments": "A singleplayer Lost City client",
-		"CompanyName": "Lost City",
+		"CompanyName": "2004 Singleplayer Progression",
 		"FileDescription": "2004scape Singleplayer Client",
 		"FileVersion": "0.1.0",
 		"InternalName": "lostcity-client",
