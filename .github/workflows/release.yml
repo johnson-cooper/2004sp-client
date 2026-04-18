@@ -36,19 +36,11 @@ jobs:
           path: lostcity-client/2004sp-client-windows.exe
 
   # ──────────────────────────────────────────────────────────────────────
-  # macOS — .app bundle with icons.icns (Intel + Apple Silicon)
+  # macOS — universal binary (Intel + Apple Silicon) via lipo
+  # Runs on a single macos-latest (arm64) runner — no macos-13 queue wait
   # ──────────────────────────────────────────────────────────────────────
   build-macos:
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            label: intel
-            runner: macos-13      # Intel — native CGO for amd64
-          - arch: arm64
-            label: apple-silicon
-            runner: macos-latest  # Apple Silicon — native CGO for arm64
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -56,25 +48,39 @@ jobs:
         with:
           go-version: 'stable'
 
-      - name: Build
+      - name: Build arm64
         working-directory: lostcity-client
-        run: go build -o 2004sp-client-macos-${{ matrix.label }}
+        run: go build -o 2004sp-client-arm64
+
+      - name: Build amd64 (cross from arm64 host with macOS SDK)
+        working-directory: lostcity-client
+        env:
+          GOARCH: amd64
+          CGO_ENABLED: 1
+          CGO_CFLAGS: "-arch x86_64"
+          CGO_LDFLAGS: "-arch x86_64"
+          SDKROOT: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+        run: go build -o 2004sp-client-amd64
+
+      - name: Merge into universal binary
+        working-directory: lostcity-client
+        run: lipo -create -output 2004sp-client-macos 2004sp-client-arm64 2004sp-client-amd64
 
       - name: Create .app bundle
         working-directory: lostcity-client
         run: |
-          APP=2004sp-client-macos-${{ matrix.label }}.app
+          APP=2004sp-client-macos.app
           mkdir -p "$APP/Contents/MacOS"
           mkdir -p "$APP/Contents/Resources"
-          cp 2004sp-client-macos-${{ matrix.label }} "$APP/Contents/MacOS/lostcity"
+          cp 2004sp-client-macos "$APP/Contents/MacOS/lostcity"
           cp build/darwin/Info.plist "$APP/Contents/"
           cp build/darwin/icons.icns "$APP/Contents/Resources/"
-          zip -r 2004sp-client-macos-${{ matrix.label }}.zip "$APP"
+          zip -r 2004sp-client-macos.zip "$APP"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: build-macos-${{ matrix.label }}
-          path: lostcity-client/2004sp-client-macos-${{ matrix.label }}.zip
+          name: build-macos
+          path: lostcity-client/2004sp-client-macos.zip
 
   # ──────────────────────────────────────────────────────────────────────
   # Linux (amd64) — binary + icon + .desktop in a tarball
@@ -144,6 +150,5 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/build-windows/2004sp-client-windows.exe
-            artifacts/build-macos-intel/2004sp-client-macos-intel.zip
-            artifacts/build-macos-apple-silicon/2004sp-client-macos-apple-silicon.zip
+            artifacts/build-macos/2004sp-client-macos.zip
             artifacts/build-linux/2004sp-client-linux.tar.gz
