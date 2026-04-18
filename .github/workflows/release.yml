@@ -28,21 +28,27 @@ jobs:
 
       - name: Build
         working-directory: lostcity-client
-        run: go build -ldflags="-H windowsgui" -o 2004sp-client-windows-amd64.exe
+        run: go build -ldflags="-H windowsgui" -o 2004sp-client-windows.exe
 
       - uses: actions/upload-artifact@v4
         with:
           name: build-windows
-          path: lostcity-client/2004sp-client-windows-amd64.exe
+          path: lostcity-client/2004sp-client-windows.exe
 
   # ──────────────────────────────────────────────────────────────────────
   # macOS — .app bundle with icons.icns (Intel + Apple Silicon)
   # ──────────────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-latest
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            label: intel
+            runner: macos-13      # Intel — native CGO for amd64
+          - arch: arm64
+            label: apple-silicon
+            runner: macos-latest  # Apple Silicon — native CGO for arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,25 +58,23 @@ jobs:
 
       - name: Build
         working-directory: lostcity-client
-        env:
-          GOARCH: ${{ matrix.arch }}
-        run: go build -o 2004sp-client-macos-${{ matrix.arch }}
+        run: go build -o 2004sp-client-macos-${{ matrix.label }}
 
       - name: Create .app bundle
         working-directory: lostcity-client
         run: |
-          APP=2004sp-client-macos-${{ matrix.arch }}.app
+          APP=2004sp-client-macos-${{ matrix.label }}.app
           mkdir -p "$APP/Contents/MacOS"
           mkdir -p "$APP/Contents/Resources"
-          cp 2004sp-client-macos-${{ matrix.arch }} "$APP/Contents/MacOS/lostcity"
+          cp 2004sp-client-macos-${{ matrix.label }} "$APP/Contents/MacOS/lostcity"
           cp build/darwin/Info.plist "$APP/Contents/"
           cp build/darwin/icons.icns "$APP/Contents/Resources/"
-          zip -r 2004sp-client-macos-${{ matrix.arch }}.zip "$APP"
+          zip -r 2004sp-client-macos-${{ matrix.label }}.zip "$APP"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: build-macos-${{ matrix.arch }}
-          path: lostcity-client/2004sp-client-macos-${{ matrix.arch }}.zip
+          name: build-macos-${{ matrix.label }}
+          path: lostcity-client/2004sp-client-macos-${{ matrix.label }}.zip
 
   # ──────────────────────────────────────────────────────────────────────
   # Linux (amd64) — binary + icon + .desktop in a tarball
@@ -94,13 +98,13 @@ jobs:
 
       - name: Build
         working-directory: lostcity-client
-        run: go build -o 2004sp-client-linux-amd64
+        run: go build -o 2004sp-client-linux
 
       - name: Package
         working-directory: lostcity-client
         run: |
           mkdir -p pkg
-          cp 2004sp-client-linux-amd64 pkg/2004sp-client
+          cp 2004sp-client-linux pkg/2004sp-client
           cp build/appicon.png pkg/icon.png
           cat > pkg/lostcity.desktop << 'EOF'
           [Desktop Entry]
@@ -114,12 +118,12 @@ jobs:
           Categories=Game;
           StartupWMClass=lostcity
           EOF
-          tar -czf 2004sp-client-linux-amd64.tar.gz -C pkg .
+          tar -czf 2004sp-client-linux.tar.gz -C pkg .
 
       - uses: actions/upload-artifact@v4
         with:
           name: build-linux
-          path: lostcity-client/2004sp-client-linux-amd64.tar.gz
+          path: lostcity-client/2004sp-client-linux.tar.gz
 
   # ──────────────────────────────────────────────────────────────────────
   # Create GitHub Release with all binaries
@@ -139,7 +143,7 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/build-windows/2004sp-client-windows-amd64.exe
-            artifacts/build-macos-amd64/2004sp-client-macos-amd64.zip
-            artifacts/build-macos-arm64/2004sp-client-macos-arm64.zip
-            artifacts/build-linux/2004sp-client-linux-amd64.tar.gz
+            artifacts/build-windows/2004sp-client-windows.exe
+            artifacts/build-macos-intel/2004sp-client-macos-intel.zip
+            artifacts/build-macos-apple-silicon/2004sp-client-macos-apple-silicon.zip
+            artifacts/build-linux/2004sp-client-linux.tar.gz
