@@ -20,6 +20,9 @@ import (
 //go:embed all:frontend
 var assets embed.FS
 
+//go:embed build/appicon.png
+var appIcon []byte
+
 var hiscoreService *HiscoreService
 
 func init() {
@@ -193,6 +196,7 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "2004 Singleplayer Progressive",
 		Description: "Lost City MMO Client",
+		Icon:        appIcon,
 		Services: []application.Service{
 			application.NewService(&GreetService{}),
 			application.NewService(hiscoreService),

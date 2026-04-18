@@ -6,7 +6,7 @@
         <key>CFBundleName</key>
             <string>My Product</string>
         <key>CFBundleExecutable</key>
-            <string>lostcity-client.exe</string>
+            <string>lostcity</string>
         <key>CFBundleIdentifier</key>
             <string>com.example.lostcityclient</string>
         <key>CFBundleVersion</key>
